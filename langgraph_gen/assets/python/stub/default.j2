@@ -1,0 +1,82 @@
+{% macro standard_edge(edge) %}
+    {% if edge == "__end__" %}END{% elif edge == "__start__" %}START{% else %}"{{ edge }}"{% endif %}
+{% endmacro %}
+
+from typing import Callable, Any, Optional, Type
+
+from langgraph.constants import START, END  # noqa: F401
+from langgraph.graph import StateGraph
+
+
+def {{ stub_name }}(
+    *,
+    state_schema: Optional[Type[Any]] = None,
+    config_schema: Optional[Type[Any]] = None,
+    input: Optional[Type[Any]] = None,
+    output: Optional[Type[Any]] = None,
+    impl: list[tuple[str, Callable]],
+) -> StateGraph:
+    """Create the state graph for {{ stub_name }}."""
+    # Declare the state graph
+    builder = StateGraph(
+        state_schema, config_schema=config_schema, input=input, output=output
+    )
+
+    nodes_by_name = {name: imp for name, imp in impl}
+
+    all_names = set(nodes_by_name)
+
+    expected_implementations = {
+        {% for node in nodes %}
+        "{{ node.id }}",
+        {% endfor %}
+        {% for edge in edges if edge.condition %}
+        "{{ edge.condition }}",
+        {% endfor %}
+    }
+
+    missing_nodes = expected_implementations - all_names
+    if missing_nodes:
+        raise ValueError(f"Missing implementations for: {missing_nodes}")
+
+    extra_nodes = all_names - expected_implementations
+
+    if extra_nodes:
+        raise ValueError(
+            f"Extra implementations for: {extra_nodes}. Please regenerate the stub."
+        )
+
+    # Add nodes
+    {% for node in nodes %}
+    builder.add_node("{{ node.name }}", nodes_by_name["{{ node.id }}"])
+    {% endfor %}
+
+    # Add edges
+    {% for edge in edges %}
+    {% if edge.condition is defined %}
+    builder.add_conditional_edges(
+        {{ standard_edge(edge.from) }},
+        nodes_by_name["{{ edge.condition }}"],
+        {% if edge.paths is mapping %}
+        {
+        {% for key, value in edge.paths.items() %}
+            "{{ key }}": {{ standard_edge(value) }},
+        {% endfor %}
+        }
+        {% else %}
+        [
+        {%  for path in edge.paths %}
+            {{ standard_edge(path) }},
+        {% endfor %}
+        ],
+        {% endif %}
+    )
+    {% else %}
+    builder.add_edge({{ standard_edge(edge.from) }}, {{ standard_edge(edge.to) }})
+    {% endif %}
+    {% endfor %}
+    {% if entrypoint %}
+    builder.set_entry_point("{{ entrypoint }}")
+    {% endif %}
+    return builder
+

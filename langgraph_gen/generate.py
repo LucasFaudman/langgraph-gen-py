@@ -12,26 +12,11 @@ from jinja2.sandbox import SandboxedEnvironment
 from langgraph.graph import StateGraph, START, END
 
 from langgraph_gen._version import __version__
+from langgraph_gen.templates import get_template_path, TemplateType, Language, TEMPLATE_TYPES
 
+# Path references
 HERE = Path(__file__).parent
-
 ASSETS = HERE / "assets"
-
-
-def _load_template(name: str) -> str:
-    """Load a template from the assets directory"""
-    with open(ASSETS / name) as f:
-        return f.read()
-
-
-# Load fully generated functional stub
-PY_STUB = _load_template("py-stub.j2")
-PY_IMPL = _load_template("py-stub-impl.j2")
-
-# TypeScript templates
-TS_STUB = _load_template("ts-stub.j2")
-TS_IMPL = _load_template("ts-stub-impl.j2")
-
 
 class InvalidSpec(Exception):
     """Invalid spec."""
@@ -67,15 +52,26 @@ def _update_spec(spec: dict) -> None:
         # convert any non alpha-numeric characters to underscores
         node["id"] = PATTERN.sub("_", node["name"])
 
+def _update_name(spec: dict, language: Language) -> str:
+    """Update the name of the agent."""
+    if "name" not in spec:
+        if language == "python":
+            spec["name"] = "create_agent"
+        elif language == "typescript":
+            spec["name"] = "createAgent"
+        else:
+            raise ValueError(f"Invalid language: {language}")
+    return spec["name"]
 
 def generate_from_spec(
     spec_str: str,
     format_: Literal["yaml", "json"],
-    templates: list[Literal["stub", "implementation"]],
+    templates: dict[TemplateType, str],
     *,
-    language: Literal["python", "typescript"] = "python",
-    stub_module: Optional[str] = None,
-) -> list[str]:
+    language: Language = "python",
+    modules: Optional[dict[TemplateType, str]] = None,
+    names: Optional[dict[TemplateType, str]] = None,
+) -> dict[TemplateType, str]:
     """Generate agent code from a YAML specification file.
 
     Args:
@@ -83,11 +79,10 @@ def generate_from_spec(
         format_: Format of the specification
         templates: Sequence of templates to generate
         language: Language to generate code for
-        stub_module If known, the module name to import the stub from.
+        modules: If known, the module name to import the stub from.
             This will be known in the CLI.
-
     Returns:
-        list[str]: List of generated code files, in the same order as the templates.
+        dict[TemplateType, str]: Generated code files.
     """
     if format_ == "yaml":
         try:
@@ -105,52 +100,58 @@ def generate_from_spec(
     _validate_spec(spec)
     # Add machine names to the nodes
     _update_spec(spec)
+    stub_name = _update_name(spec, language)
 
     env = SandboxedEnvironment(
         loader=jinja2.BaseLoader, trim_blocks=True, lstrip_blocks=True
     )
 
-    generated = []
+    _modules = {}
+    _names = {"stub_name": stub_name}
+    for template_type in TEMPLATE_TYPES:
+        if modules and template_type in modules:
+            _modules[f"{template_type}_module"] = modules[template_type]
+        if names and template_type in names:
+            _names[f"{template_type}_name"] = names[template_type]
 
-    for template_name in templates:
+    if "builder_name" not in _names:
+        _names["builder_name"] = spec.get("builder_name", "builder")
+    if "compiled_name" not in _names:
+        _names["compiled_name"] = spec.get("compiled_name", "graph")
+    for spec_key in ["config", "state", "input", "output", "implementation"]:
+        if (spec_val := spec.get(spec_key)) and "." in spec_val:
+            *module_parts, name = spec_val.rsplit(".", 1)
+        else:
+            module_parts = None
+            name = spec_val
+
+        module_key = f"{spec_key}_module"
+        if module_parts and not _modules.get(module_key):
+            _modules[module_key] = ".".join(module_parts)
+        
+        name_key = f"{spec_key}_name"
+        if name and not _names.get(name_key):
+            _names[name_key] = name
+
+    generated = {}
+
+    for template_type, template_path in templates.items():
         try:
-            if template_name == "stub":
-                if language == "python":
-                    template = env.from_string(PY_STUB)
-                elif language == "typescript":
-                    template = env.from_string(TS_STUB)
-                else:
-                    raise ValueError(f"Invalid language: {language}")
-            elif template_name == "implementation":
-                if language == "python":
-                    template = env.from_string(PY_IMPL)
-                elif language == "typescript":
-                    template = env.from_string(TS_IMPL)
-                else:
-                    raise ValueError(f"Invalid language: {language}")
+            if template_type in TEMPLATE_TYPES:
+                template_path = get_template_path(language, template_type, template_path)
+                template = env.from_string(template_path.read_text())
             else:
-                raise ValueError(f"Invalid template type: {template_name}")
-            # Update the name based on the language
-
-            if "name" not in spec:
-                if language == "python":
-                    stub_name = "create_agent"
-                elif language == "typescript":
-                    stub_name = "createAgent"
-                else:
-                    raise ValueError(f"Invalid language: {language}")
-            else:
-                stub_name = spec["name"]
+                raise ValueError(f"Invalid template type: {template_type}")
 
             code = template.render(
-                stub_name=stub_name,
                 nodes=spec["nodes"],
                 edges=spec["edges"],
                 entrypoint=spec.get("entrypoint", None),
                 version=__version__,
-                stub_module=stub_module,
+                **_modules,
+                **_names,
             )
-            generated.append(code)
+            generated[template_type] = code
         except jinja2.TemplateError as e:
             raise AssertionError(
                 f"Error rendering template: {str(e)}",

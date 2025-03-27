@@ -1,0 +1,74 @@
+"""This file was generated using `langgraph-gen` version {{ version }}.
+
+This file provides a placeholder implementation for the corresponding stub.
+
+Replace the placeholder implementation with your own logic.
+"""
+from typing import Any
+{% if stub_module %}
+from {{ stub_module }} import {{ stub_name }}
+{% else %}
+# Update the import path
+# from [path to your stub] import {{ stub_name }}
+{% endif %}
+{% if config_module %}
+from {{ config_module }} import {{ config_name }}
+{% else %}
+# Update the import path
+# from [path to your config] import {{ config_name }}
+{% endif %}
+{% if state_module %}
+from {{ state_module }} import {{ state_name }}
+{% else %}
+# Update the import path
+# from [path to your state] import {{ state_name }}
+{% endif %}
+{% if input_module %}
+from {{ input_module }} import {{ input_name }}
+{% else %}
+# Update the import path
+# from [path to your input] import {{ input_name }}
+{% endif %}
+{% if output_module %}
+from {{ output_module }} import {{ output_name }}
+{% else %}
+# Update the import path
+# from [path to your output] import {{ output_name }}
+{% endif %}
+
+# Define stand-alone functions
+{% for node in nodes %}
+def {{ node.id }}(state: {{ state_name }}) -> {{ state_name }}:
+    print("In node: {{ node.name }}")
+    return {
+        # Add your state update logic here
+    }
+
+
+{% endfor %}
+{% for edge in edges if edge.condition is defined %}
+def {{ edge.condition }}(state: {{ state_name }}) -> str:
+    print("In condition: {{ edge.condition }}")
+    raise NotImplementedError("Implement me.")
+
+
+{% endfor %}
+agent = {{ stub_name }}(
+    state_schema={{ state_name }},
+    config_schema={{ config_name }},
+    input={{ input_name if input_name else "None" }},
+    output={{ output_name if output_name else "None" }},
+    impl=[
+    {% for node in nodes %}
+        ("{{ node.id }}", {{ node.id }}),
+    {% endfor %}
+    {% for edge in edges if edge.condition is defined %}
+        ("{{ edge.condition }}", {{ edge.condition }}),
+    {% endfor %}
+    ],
+)
+
+{{ compiled_name }} = agent.compile()
+
+
+

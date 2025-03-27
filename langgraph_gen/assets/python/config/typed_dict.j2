@@ -1,0 +1,25 @@
+"""Define the configurable parameters for the agent."""
+
+from typing import TypedDict, Optional, NotRequired
+
+from langchain_core.runnables import RunnableConfig, ensure_config
+from typing_extensions import Annotated
+
+
+class Configuration(TypedDict):
+    """The configuration for the agent."""
+
+    system_prompt: NotRequired[str]
+    """The system prompt to use for the agent's interactions.
+    This prompt sets the context and behavior for the agent."""
+
+    model: NotRequired[Annotated[str, {"__template_metadata__": {"kind": "llm"}}]]
+    """The name of the language model to use for the agent's main interactions.
+    Should be in the form: provider/model-name."""
+
+    @classmethod
+    def from_runnable_config(cls, config: Optional[RunnableConfig] = None) -> "Configuration":
+        """Create a Configuration instance from a RunnableConfig object."""
+        config = ensure_config(config)
+        configurable = config.get("configurable") or {}
+        return cls(**{k: v for k, v in configurable.items() if k in cls.__annotations__})

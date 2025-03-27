@@ -7,6 +7,7 @@ from typing import Optional, Literal
 
 from langgraph_gen._version import __version__
 from langgraph_gen.generate import generate_from_spec
+from langgraph_gen.templates import list_templates, TemplateType
 
 
 def print_error(message: str) -> None:
@@ -32,49 +33,54 @@ def _generate(
     input_file: Path,
     *,
     language: Literal["python", "typescript"],
-    output_file: Optional[Path] = None,
-    implementation: Optional[Path] = None,
-) -> tuple[str, str]:
+    output_files: dict[TemplateType, Path] = {},
+    templates: dict[TemplateType, str] = {},
+) -> dict[TemplateType, Path]:
     """Generate agent code from a YAML specification file.
 
     Args:
         input_file (Path): Input YAML specification file
         language (Literal["python", "typescript"]): Language to generate code for
-        output_file (Optional[Path]): Output Python file path
-        implementation (Optional[Path]): Output Python file path for a placeholder implementation
+        output_files (dict[TemplateType, Path]): Output file paths for the stub, implementation, state, and config
+        templates (dict[str, str]): Custom templates for the stub, implementation, state, and config
 
     Returns:
-        2-tuple of path: Path to the generated stub file and implementation file
+        dict[TemplateType, Path]: Paths to the generated files
     """
     if language not in ["python", "typescript"]:
         raise NotImplementedError(
             f"Unsupported language: {language}. Use one of 'python' or 'typescript'"
         )
     suffix = ".py" if language == "python" else ".ts"
-    output_path = output_file or input_file.with_suffix(suffix)
-
-    # Add a _impl.py suffix to the input filename if implementation is not provided
-    if implementation is None:
-        implementation = input_file.with_name(f"{input_file.stem}_impl{suffix}")
+    input_stem = input_file.stem
+    
+    if "stub" not in output_files:
+        output_files["stub"] = input_file.with_suffix(suffix)
+    if "implementation" not in output_files:
+        output_files["implementation"] = input_file.with_name(f"{input_stem}_impl{suffix}")
+    if "state" not in output_files:
+        output_files["state"] = input_file.with_name(f"{input_stem}_state{suffix}")
+    if "config" not in output_files:
+        output_files["config"] = input_file.with_name(f"{input_stem}_config{suffix}")
 
     # Get the implementation relative to the output path
     stub_module = _rewrite_path_as_import(
-        output_path.relative_to(implementation.parent)
+        output_files["stub"].relative_to(output_files["implementation"].parent)
     )
 
     spec_as_yaml = input_file.read_text()
-    stub, impl = generate_from_spec(
+    generated = generate_from_spec(
         spec_as_yaml,
         "yaml",
-        templates=["stub", "implementation"],
+        templates=templates,
         language=language,
-        stub_module=stub_module,
+        modules={"stub": stub_module}
     )
-    output_path.write_text(stub)
-    implementation.write_text(impl)
+    for template_type, code in generated.items():
+        output_files[template_type].write_text(code)
 
     # Return the created files for reporting
-    return output_path, implementation
+    return output_files
 
 
 def main() -> None:
@@ -90,6 +96,12 @@ Examples:
 
   # Generate with custom output paths
   langgraph-gen spec.yml -o custom_output.py --implementation custom_impl.py
+  
+  # List available templates
+  langgraph-gen --list-templates
+  
+  # Generate with custom templates
+  langgraph-gen spec.yml --stub-template py-class-stub.j2 --impl-template py-impl-stub.j2
 """
 
     # Use RawDescriptionHelpFormatter to preserve newlines in epilog
@@ -98,7 +110,7 @@ Examples:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=examples,
     )
-    parser.add_argument("input", type=Path, help="Input YAML specification file")
+    parser.add_argument("input", type=Path, help="Input YAML specification file", nargs="?")
     parser.add_argument(
         "-l",
         "--language",
@@ -106,19 +118,76 @@ Examples:
         default="python",
         help="Language to generate code for (python, typescript)",
     )
+
     parser.add_argument(
-        "-o",
-        "--output",
+        "-sO",
+        "--stub-outfile",
         type=Path,
         help="Output file path for the agent stub",
         default=None,
     )
 
     parser.add_argument(
-        "--implementation",
+        "-iO",
+        "--impl-output",
         type=Path,
-        help="Output file path for an implementation with function stubs for all nodes",
+        help="Output file path for the agent implementation",
         default=None,
+    )
+    
+    parser.add_argument(
+        "-SO",
+        "--state-outfile",
+        type=Path,
+        help="Output file path for the agent state",
+        default=None,
+    )
+
+    parser.add_argument(
+        "-CO",
+        "--config-outfile",
+        type=Path,
+        help="Output file path for the agent config",
+        default=None,
+    )
+    
+    parser.add_argument(
+        "-L",
+        "--list-templates",
+        action="store_true",
+        help="List available templates and exit",
+    )
+    
+    parser.add_argument(
+        "-sT",
+        "--stub-template",
+        type=str,
+        help="Custom template to use for the agent stub",
+        default="default",
+    )
+    
+    parser.add_argument(
+        "-iT",
+        "--impl-template",
+        type=str,
+        help="Custom template to use for the implementation",
+        default="default",
+    )
+
+    parser.add_argument(
+        "-ST",
+        "--state-template",
+        type=str,
+        help="Custom template to use for the state",
+        default="default",
+    )
+
+    parser.add_argument(
+        "-CT",
+        "--config-template",
+        type=str,
+        help="Custom template to use for the config",
+        default="default",
     )
 
     parser.add_argument(
@@ -151,30 +220,60 @@ Examples:
             # Add error message using our helper function
             print_error("Invalid arguments")
         sys.exit(e.code)
+        
+    # Handle listing templates
+    if args.list_templates:
+        print(list_templates())
+        sys.exit(0)
 
+    # Check if input file is provided when not listing templates
+    if not args.input:
+        print_error("Input file is required unless --list-templates is specified")
+        sys.exit(1)
+        
     # Check if input file exists
     if not args.input.exists():
         print_error(f"Input file {args.input} does not exist")
         sys.exit(1)
+    
+    output_files = {}
+    if args.stub_outfile:
+        output_files["stub"] = args.stub_outfile
+    if args.impl_output:
+        output_files["implementation"] = args.impl_output
+    if args.state_outfile:
+        output_files["state"] = args.state_outfile
+    if args.config_outfile:
+        output_files["config"] = args.config_outfile
+
+    templates = {}
+    if args.stub_template:
+        templates["stub"] = args.stub_template
+    if args.impl_template:
+        templates["implementation"] = args.impl_template
+    if args.state_template:
+        templates["state"] = args.state_template
+    if args.config_template:
+        templates["config"] = args.config_template
 
     # Generate the code
     try:
-        stub_file, impl_file = _generate(
+        output_files = _generate(
             input_file=args.input,
-            output_file=args.output,
+            output_files=output_files,
+            templates=templates,
             language=args.language,
-            implementation=args.implementation,
         )
 
         # Check if stdout is a TTY to use colors and emoji
         if sys.stdout.isatty():
             print("\033[32m✅ Successfully generated files:\033[0m")
-            print(f"\033[32m📄 Stub file:          \033[0m {stub_file}")
-            print(f"\033[32m🔧 Implementation file: \033[0m {impl_file}")
+            for template_type, file in output_files.items():
+                print(f"\033[32m📄 {template_type.capitalize()} file: \033[0m {file}")
         else:
             print("Successfully generated files:")
-            print(f"- Stub file:           {stub_file}")
-            print(f"- Implementation file: {impl_file}")
+            for template_type, file in output_files.items():
+                print(f"- {template_type.capitalize()} file: {file}")
     except Exception as e:
         # Use our helper function for consistent error formatting
         print_error(str(e))

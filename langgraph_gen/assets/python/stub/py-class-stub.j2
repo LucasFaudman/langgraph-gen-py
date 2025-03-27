@@ -9,7 +9,7 @@ from langgraph.graph import StateGraph, END
 from pydantic import BaseModel
 
 
-class {{ class_name }}(ABC):
+class {{ stub_name }}(ABC):
     """Automatically generated stub."""
 
     def __init__(self) -> None:
@@ -31,9 +31,11 @@ class {{ class_name }}(ABC):
             {% endfor %}
             }
             {% else %}
+            [
             {% for path in edge.paths %}
-            "{{ path }}",
+                "{{ path }}",
             {% endfor %}
+            ]
             {% endif %}
         )
         {% else %}
@@ -59,4 +61,5 @@ class {{ class_name }}(ABC):
     @abstractmethod
     def {{ edge.condition }}(self, state: dict) -> str:
         """Condition for {{ edge.from }} → {{ edge.paths|join(', ') }}"""
+        
     {% endfor %}
