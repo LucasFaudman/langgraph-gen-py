@@ -45,7 +45,10 @@ def {{ edge.condition }}(state: {{ state_name }}) -> str:
     print("In condition: {{ edge.condition }}")
     raise NotImplementedError("Implement me.")
 
+
 {% endfor %}
+
+
 {{ implementation_name }} = {
     {% for node in nodes %}
     "{{ node.id }}": {{ node.id }},
