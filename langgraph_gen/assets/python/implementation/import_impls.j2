@@ -1,15 +1,15 @@
 """This file was generated using `langgraph-gen` version {{ version }}.
 
-This file provides a placeholder implementation for the corresponding stub.
+This file provides a placeholder implementation for the corresponding graph.
 
 Replace the placeholder implementation with your own logic.
 """
 from typing import Any
-{% if stub_module %}
-from {{ stub_module }} import {{ stub_name }}
+{% if graph_module %}
+from {{ graph_module }} import {{ graph_name }}
 {% else %}
 # Update the import path
-# from [path to your stub] import {{ stub_name }}
+# from [path to your graph] import {{ graph_name }}
 {% endif %}
 {% if config_module %}
 from {{ config_module }} import {{ config_name }}
@@ -60,7 +60,7 @@ def {{ edge.condition }}(state: {{ state_name }}) -> str:
 
 {% endfor %}
 
-{{ builder_name }} = {{ stub_name }}(
+{{ builder_name }} = {{ graph_name }}(
     state_schema={{ state_name }},
     config_schema={{ config_name }},
     input={{ input_name if input_name else "None" }},
@@ -69,7 +69,7 @@ def {{ edge.condition }}(state: {{ state_name }}) -> str:
 )
 
 {{ compiled_name }} = {{ builder_name }}.compile()
-{{ compiled_name }}.name = "{{ stub_name }}"
+{{ compiled_name }}.name = "{{ graph_name }}"
 
 __all__ = ["{{ builder_name }}", "{{ compiled_name }}"]
 

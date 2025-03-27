@@ -1,16 +1,10 @@
 """This file was generated using `langgraph-gen` version {{ version }}.
 
-This file provides a placeholder implementation for the corresponding stub.
+This file provides a placeholder implementation for the corresponding graph.
 
 Replace the placeholder implementation with your own logic.
 """
-from typing import Any
-{% if stub_module %}
-from {{ stub_module }} import {{ stub_name }}
-{% else %}
-# Update the import path
-# from [path to your stub] import {{ stub_name }}
-{% endif %}
+
 {% if config_module %}
 from {{ config_module }} import {{ config_name }}
 {% else %}
@@ -51,24 +45,24 @@ def {{ edge.condition }}(state: {{ state_name }}) -> str:
     print("In condition: {{ edge.condition }}")
     raise NotImplementedError("Implement me.")
 
-
 {% endfor %}
-agent = {{ stub_name }}(
-    state_schema={{ state_name }},
-    config_schema={{ config_name }},
-    input={{ input_name if input_name else "None" }},
-    output={{ output_name if output_name else "None" }},
-    impl=[
+{{ implementation_name }} = {
     {% for node in nodes %}
-        ("{{ node.id }}", {{ node.id }}),
+    "{{ node.id }}": {{ node.id }},
     {% endfor %}
     {% for edge in edges if edge.condition is defined %}
-        ("{{ edge.condition }}", {{ edge.condition }}),
+    "{{ edge.condition }}": {{ edge.condition }},
     {% endfor %}
-    ],
-)
+}
 
-{{ compiled_name }} = agent.compile()
-
+__all__ = [
+    "{{ implementation_name }}",
+    {% for node in nodes %}
+    "{{ node.id }}",
+    {% endfor %}
+    {% for edge in edges if edge.condition is defined %}
+    "{{ edge.condition }}",
+    {% endfor %}
+]
 
 

@@ -10,9 +10,9 @@ ASSETS =  Path(__file__).parent / "assets"
 
 
 Language = Literal["python", "typescript"]
-TemplateType = Literal["stub", "implementation", "state", "config"]
+TemplateType = Literal["graph", "implementation", "state", "config"]
 LANGUAGES: list[Language] = ["python", "typescript"]
-TEMPLATE_TYPES: list[TemplateType] = ["stub", "implementation", "state", "config"]
+TEMPLATE_TYPES: list[TemplateType] = ["graph", "implementation", "state", "config"]
 
 
 @lru_cache(maxsize=1)

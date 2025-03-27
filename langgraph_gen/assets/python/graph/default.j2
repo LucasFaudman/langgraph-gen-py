@@ -1,0 +1,134 @@
+"""This file was generated using `langgraph-gen` version {{ version }}.
+
+This file provides a placeholder implementation for the corresponding graph.
+
+Replace the placeholder implementation with your own logic.
+"""
+{% macro standard_edge(edge) %}
+    {% if edge == "__end__" %}END{% elif edge == "__start__" %}START{% else %}"{{ edge }}"{% endif %}
+{% endmacro %}
+
+from typing import Callable, Any, Optional, Type
+
+from langgraph.constants import START, END  # noqa: F401
+from langgraph.graph import StateGraph
+
+{% if config_module %}
+from {{ config_module }} import {{ config_name }}
+{% else %}
+# Update the import path
+# from [path to your config] import {{ config_name }}
+{% endif %}
+{% if state_module %}
+from {{ state_module }} import {{ state_name }}
+{% else %}
+# Update the import path
+# from [path to your state] import {{ state_name }}
+{% endif %}
+{% if input_module %}
+from {{ input_module }} import {{ input_name }}
+{% else %}
+# Update the import path
+# from [path to your input] import {{ input_name }}
+{% endif %}
+{% if output_module %}
+from {{ output_module }} import {{ output_name }}
+{% else %}
+# Update the import path
+# from [path to your output] import {{ output_name }}
+{% endif %}
+{% if implementation_module %}
+from {{ implementation_module }} import {{ implementation_name }}
+{% else %}
+# Update the import path
+# from [path to your implementation] import {{ implementation_name }}
+{% endif %}
+
+
+def {{ graph_name }}(
+    *,
+    state_schema: Optional[Type[Any]] = None,
+    config_schema: Optional[Type[Any]] = None,
+    input: Optional[Type[Any]] = None,
+    output: Optional[Type[Any]] = None,
+    impl: list[tuple[str, Callable]],
+) -> StateGraph:
+    """Create the state graph for {{ graph_name }}."""
+    # Declare the state graph
+    builder = StateGraph(
+        state_schema, config_schema=config_schema, input=input, output=output
+    )
+
+    nodes_by_name = {name: imp for name, imp in impl}
+
+    all_names = set(nodes_by_name)
+
+    expected_implementations = {
+        {% for node in nodes %}
+        "{{ node.id }}",
+        {% endfor %}
+        {% for edge in edges if edge.condition %}
+        "{{ edge.condition }}",
+        {% endfor %}
+    }
+
+    missing_nodes = expected_implementations - all_names
+    if missing_nodes:
+        raise ValueError(f"Missing implementations for: {missing_nodes}")
+
+    extra_nodes = all_names - expected_implementations
+
+    if extra_nodes:
+        raise ValueError(
+            f"Extra implementations for: {extra_nodes}. Please regenerate the graph."
+        )
+
+    # Add nodes
+    {% for node in nodes %}
+    builder.add_node("{{ node.name }}", nodes_by_name["{{ node.id }}"])
+    {% endfor %}
+
+    # Add edges
+    {% for edge in edges %}
+    {% if edge.condition is defined %}
+    builder.add_conditional_edges(
+        {{ standard_edge(edge.from) }},
+        nodes_by_name["{{ edge.condition }}"],
+        {% if edge.paths is mapping %}
+        {
+        {% for key, value in edge.paths.items() %}
+            "{{ key }}": {{ standard_edge(value) }},
+        {% endfor %}
+        }
+        {% else %}
+        [
+        {%  for path in edge.paths %}
+            {{ standard_edge(path) }},
+        {% endfor %}
+        ],
+        {% endif %}
+    )
+    {% else %}
+    builder.add_edge({{ standard_edge(edge.from) }}, {{ standard_edge(edge.to) }})
+    {% endif %}
+    {% endfor %}
+    {% if entrypoint %}
+    builder.set_entry_point("{{ entrypoint }}")
+    {% endif %}
+    return builder
+
+{{ builder_name }} = {{ graph_name }}(
+    state_schema={{ state_name }},
+    config_schema={{ config_name }},
+    input={{ input_name if input_name else "None" }},
+    output={{ output_name if output_name else "None" }},
+    impl=list({{ implementation_name }}.items()),
+)
+
+{{ compiled_name }} = {{ builder_name }}.compile()
+{{ compiled_name }}.name = "{{ graph_name }}"
+
+__all__ = ["{{ builder_name }}", "{{ compiled_name }}"]
+
+if __name__ == "__main__":
+    print({{ compiled_name }}.get_graph().draw_mermaid())

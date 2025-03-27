@@ -7,7 +7,7 @@ from typing import Optional, Literal
 
 from langgraph_gen._version import __version__
 from langgraph_gen.generate import generate_from_spec
-from langgraph_gen.templates import list_templates, TemplateType
+from langgraph_gen.templates import list_templates, TemplateType, TEMPLATE_TYPES, Language
 
 
 def print_error(message: str) -> None:
@@ -41,8 +41,8 @@ def _generate(
     Args:
         input_file (Path): Input YAML specification file
         language (Literal["python", "typescript"]): Language to generate code for
-        output_files (dict[TemplateType, Path]): Output file paths for the stub, implementation, state, and config
-        templates (dict[str, str]): Custom templates for the stub, implementation, state, and config
+        output_files (dict[TemplateType, Path]): Output file paths for the graph, implementation, state, and config
+        templates (dict[str, str]): Custom templates for the graph, implementation, state, and config
 
     Returns:
         dict[TemplateType, Path]: Paths to the generated files
@@ -54,18 +54,13 @@ def _generate(
     suffix = ".py" if language == "python" else ".ts"
     input_stem = input_file.stem
     
-    if "stub" not in output_files:
-        output_files["stub"] = input_file.with_suffix(suffix)
-    if "implementation" not in output_files:
-        output_files["implementation"] = input_file.with_name(f"{input_stem}_impl{suffix}")
-    if "state" not in output_files:
-        output_files["state"] = input_file.with_name(f"{input_stem}_state{suffix}")
-    if "config" not in output_files:
-        output_files["config"] = input_file.with_name(f"{input_stem}_config{suffix}")
-
+    for template_type in TEMPLATE_TYPES:
+        if template_type not in output_files:
+            output_files[template_type] = input_file.with_name(f"{template_type}{suffix}")
+    
     # Get the implementation relative to the output path
-    stub_module = _rewrite_path_as_import(
-        output_files["stub"].relative_to(output_files["implementation"].parent)
+    graph_module = _rewrite_path_as_import(
+        output_files["graph"].relative_to(output_files["graph"].parent)
     )
 
     spec_as_yaml = input_file.read_text()
@@ -74,13 +69,15 @@ def _generate(
         "yaml",
         templates=templates,
         language=language,
-        modules={"stub": stub_module}
+        modules={"graph": graph_module}
     )
+    _output_files = {}
     for template_type, code in generated.items():
         output_files[template_type].write_text(code)
+        _output_files[template_type] = output_files[template_type]
 
     # Return the created files for reporting
-    return output_files
+    return _output_files
 
 
 def main() -> None:
@@ -101,7 +98,7 @@ Examples:
   langgraph-gen --list-templates
   
   # Generate with custom templates
-  langgraph-gen spec.yml --stub-template py-class-stub.j2 --impl-template py-impl-stub.j2
+  langgraph-gen spec.yml --graph-template py-class-graph.j2 --impl-template py-impl-graph.j2
 """
 
     # Use RawDescriptionHelpFormatter to preserve newlines in epilog
@@ -120,75 +117,42 @@ Examples:
     )
 
     parser.add_argument(
-        "-sO",
-        "--stub-outfile",
-        type=Path,
-        help="Output file path for the agent stub",
-        default=None,
+        "--only",
+        type=str,
+        nargs="*",
+        help="Only generate the specified template type",
+    )
+    parser.add_argument(
+        "--skip",
+        type=str,
+        nargs="*",
+        help="Skip the specified template type",
     )
 
-    parser.add_argument(
-        "-iO",
-        "--impl-output",
-        type=Path,
-        help="Output file path for the agent implementation",
-        default=None,
-    )
     
-    parser.add_argument(
-        "-SO",
-        "--state-outfile",
-        type=Path,
-        help="Output file path for the agent state",
-        default=None,
-    )
+    
+    for template_type in TEMPLATE_TYPES:
+        parser.add_argument(
+            f"-{template_type[0]}O",
+            f"--{template_type}-outfile",
+            type=Path,
+            help=f"Output file path for the {template_type}",
+        )
 
-    parser.add_argument(
-        "-CO",
-        "--config-outfile",
-        type=Path,
-        help="Output file path for the agent config",
-        default=None,
-    )
-    
+    for template_type in TEMPLATE_TYPES:
+        parser.add_argument(
+            f"-{template_type[0]}T",
+            f"--{template_type}-template",
+            type=str,
+            help=f"Custom template to use for the {template_type}",
+        )
+
     parser.add_argument(
         "-L",
         "--list-templates",
         action="store_true",
-        help="List available templates and exit",
-    )
-    
-    parser.add_argument(
-        "-sT",
-        "--stub-template",
-        type=str,
-        help="Custom template to use for the agent stub",
-        default="default",
-    )
-    
-    parser.add_argument(
-        "-iT",
-        "--impl-template",
-        type=str,
-        help="Custom template to use for the implementation",
-        default="default",
-    )
-
-    parser.add_argument(
-        "-ST",
-        "--state-template",
-        type=str,
-        help="Custom template to use for the state",
-        default="default",
-    )
-
-    parser.add_argument(
-        "-CT",
-        "--config-template",
-        type=str,
-        help="Custom template to use for the config",
-        default="default",
-    )
+        help="List available templates",
+    )    
 
     parser.add_argument(
         "-V", "--version", action="version", version=f"%(prog)s {__version__}"
@@ -237,24 +201,21 @@ Examples:
         sys.exit(1)
     
     output_files = {}
-    if args.stub_outfile:
-        output_files["stub"] = args.stub_outfile
-    if args.impl_output:
-        output_files["implementation"] = args.impl_output
-    if args.state_outfile:
-        output_files["state"] = args.state_outfile
-    if args.config_outfile:
-        output_files["config"] = args.config_outfile
-
     templates = {}
-    if args.stub_template:
-        templates["stub"] = args.stub_template
-    if args.impl_template:
-        templates["implementation"] = args.impl_template
-    if args.state_template:
-        templates["state"] = args.state_template
-    if args.config_template:
-        templates["config"] = args.config_template
+    suffix = ".py" if args.language == "python" else ".ts"
+    for template_type in TEMPLATE_TYPES:
+        if args.only and template_type not in args.only:
+            continue
+        if args.skip and template_type in args.skip:
+            continue
+        if outfile := getattr(args, f"{template_type}_outfile"):
+            output_files[template_type] = outfile
+        else:
+            output_files[template_type] = args.input.with_name(f"{template_type}{suffix}")
+        if template := getattr(args, f"{template_type}_template"):
+            templates[template_type] = template
+        else:
+            templates[template_type] = "default"
 
     # Generate the code
     try:
@@ -264,7 +225,6 @@ Examples:
             templates=templates,
             language=args.language,
         )
-
         # Check if stdout is a TTY to use colors and emoji
         if sys.stdout.isatty():
             print("\033[32m✅ Successfully generated files:\033[0m")

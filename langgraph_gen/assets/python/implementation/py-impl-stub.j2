@@ -2,8 +2,8 @@ from typing import Type
 
 from pydantic import BaseModel
 
-# import the auto-generated stub
-## from [YOUR PACKAGE NAME] import {{ stub_name }}
+# import the auto-generated graph
+## from [YOUR PACKAGE NAME] import {{ graph_name }}
 
 
 class MyState(BaseModel):
@@ -11,7 +11,7 @@ class MyState(BaseModel):
     pass
 
 
-class {{ stub_name }}Implementation({{ stub_name }}):
+class {{ graph_name }}Implementation({{ graph_name }}):
     def __init__(self) -> None:
         """Build the underlying graph."""
         super().__init__()

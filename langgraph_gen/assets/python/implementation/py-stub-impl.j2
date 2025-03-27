@@ -1,17 +1,17 @@
 """This file was generated using `langgraph-gen` version {{ version }}.
 
-This file provides a placeholder implementation for the corresponding stub.
+This file provides a placeholder implementation for the corresponding graph.
 
 Replace the placeholder implementation with your own logic.
 """
 
 from typing_extensions import TypedDict
 
-{% if stub_module %}
-from {{ stub_module }} import {{ stub_name }}
+{% if graph_module %}
+from {{ graph_module }} import {{ graph_name }}
 {% else %}
 # Update the import path
-# from [path to your stub] import {{ stub_name }}
+# from [path to your graph] import {{ graph_name }}
 {% endif %}
 
 
@@ -37,7 +37,7 @@ def {{ edge.condition }}(state: SomeState) -> str:
 
 
 {% endfor %}
-agent = {{ stub_name }}(
+agent = {{ graph_name }}(
     state_schema=SomeState,
     impl=[
     {% for node in nodes %}

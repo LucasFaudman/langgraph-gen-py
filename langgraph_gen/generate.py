@@ -79,7 +79,7 @@ def generate_from_spec(
         format_: Format of the specification
         templates: Sequence of templates to generate
         language: Language to generate code for
-        modules: If known, the module name to import the stub from.
+        modules: If known, the module name to import the graph from.
             This will be known in the CLI.
     Returns:
         dict[TemplateType, str]: Generated code files.
@@ -100,14 +100,14 @@ def generate_from_spec(
     _validate_spec(spec)
     # Add machine names to the nodes
     _update_spec(spec)
-    stub_name = _update_name(spec, language)
-
+    graph_name = _update_name(spec, language)
+    print(graph_name)
     env = SandboxedEnvironment(
         loader=jinja2.BaseLoader, trim_blocks=True, lstrip_blocks=True
     )
 
     _modules = {}
-    _names = {"stub_name": stub_name}
+    _names = {"graph_name": graph_name}
     for template_type in TEMPLATE_TYPES:
         if modules and template_type in modules:
             _modules[f"{template_type}_module"] = modules[template_type]
@@ -154,7 +154,7 @@ def generate_from_spec(
             generated[template_type] = code
         except jinja2.TemplateError as e:
             raise AssertionError(
-                f"Error rendering template: {str(e)}",
+                f"Error rendering template {template_path}: {str(e)}",
             )
 
     return generated
