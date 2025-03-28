@@ -34,9 +34,8 @@ from {{ output_module }} import {{ output_name }}
 {% for node in nodes %}
 def {{ node.id }}(state: {{ state_name }}) -> {{ state_name }}:
     print("In node: {{ node.name }}")
-    return {
-        # Add your state update logic here
-    }
+    # Update the state here
+    return state
 
 
 {% endfor %}
