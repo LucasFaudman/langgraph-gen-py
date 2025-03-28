@@ -7,7 +7,7 @@ from typing import Optional, Literal
 
 from langgraph_gen._version import __version__
 from langgraph_gen.generate import generate_from_spec
-from langgraph_gen.templates import list_templates, TemplateType, TEMPLATE_TYPES, Language
+from langgraph_gen.templates import list_templates, TemplateType, TEMPLATE_TYPES, Language, add_template_dir, TEMPLATE_DIRS, LANGUAGES
 
 
 def print_error(message: str) -> None:
@@ -29,55 +29,103 @@ def _rewrite_path_as_import(path: Path) -> str:
     return ".".join(path.with_suffix("").parts)
 
 
-def _generate(
-    input_file: Path,
-    *,
-    language: Literal["python", "typescript"],
-    output_files: dict[TemplateType, Path] = {},
-    templates: dict[TemplateType, str] = {},
-) -> dict[TemplateType, Path]:
-    """Generate agent code from a YAML specification file.
-
+def _generate(args: argparse.Namespace) -> dict[TemplateType, Path]:
+    """Generate the code from the input file.    
     Args:
-        input_file (Path): Input YAML specification file
-        language (Literal["python", "typescript"]): Language to generate code for
-        output_files (dict[TemplateType, Path]): Output file paths for the graph, implementation, state, and config
-        templates (dict[str, str]): Custom templates for the graph, implementation, state, and config
-
+        args: The parsed command line arguments
+        
     Returns:
-        dict[TemplateType, Path]: Paths to the generated files
+        A dictionary of generated files
     """
-    if language not in ["python", "typescript"]:
+
+    if args.language not in ["python", "typescript"]:
         raise NotImplementedError(
-            f"Unsupported language: {language}. Use one of 'python' or 'typescript'"
+            f"Unsupported language: {args.language}. Use one of 'python' or 'typescript'"
         )
-    suffix = ".py" if language == "python" else ".ts"
-    input_stem = input_file.stem
     
+    suffix = ".py" if args.language == "python" else ".ts"
+    
+    output_files = {}
+    templates = {}
     for template_type in TEMPLATE_TYPES:
-        if template_type not in output_files:
-            output_files[template_type] = input_file.with_name(f"{template_type}{suffix}")
-    
+        if args.only and template_type not in args.only:
+            continue
+        if args.skip and template_type in args.skip:
+            continue
+        if outfile := getattr(args, f"{template_type}_outfile", None):
+            output_files[template_type] = outfile
+        else:
+            output_files[template_type] = args.input.with_name(f"{template_type}{suffix}")
+        if template := getattr(args, f"{template_type}_template", None):
+            templates[template_type] = template
+        else:
+            templates[template_type] = "default"
+
     # Get the implementation relative to the output path
     graph_module = _rewrite_path_as_import(
         output_files["graph"].relative_to(output_files["graph"].parent)
     )
 
-    spec_as_yaml = input_file.read_text()
+    spec_as_yaml = args.input.read_text()
     generated = generate_from_spec(
         spec_as_yaml,
         "yaml",
         templates=templates,
-        language=language,
+        language=args.language,
         modules={"graph": graph_module}
     )
-    _output_files = {}
+    generated_files = {}
     for template_type, code in generated.items():
         output_files[template_type].write_text(code)
-        _output_files[template_type] = output_files[template_type]
+        generated_files[template_type] = output_files[template_type]
 
-    # Return the created files for reporting
-    return _output_files
+    # Check if stdout is a TTY to use colors and emoji
+    if sys.stdout.isatty():
+        print("\033[32m✅ Successfully generated files:\033[0m")
+        for template_type, file in generated_files.items():
+            print(f"\033[32m📄 {template_type.capitalize()} file: \033[0m {file}")
+    else:
+        print("Successfully generated files:")
+        for template_type, file in generated_files.items():
+            print(f"- {template_type.capitalize()} file: {file}")        
+
+    return generated_files
+
+
+def _list_templates(args: argparse.Namespace) -> None:
+    """List available templates.
+    
+    Args:
+        args: The parsed command line arguments
+    """
+    print(list_templates(language=args.language, template_types=args.only))
+
+def _serve(args: argparse.Namespace) -> None:
+    """Serve the HTTP server.
+    
+    Args:
+        args: The parsed command line arguments
+    """
+    # Parse the serve argument to get host and port
+    serve_arg = args.serve
+    if ":" in serve_arg:
+        host, port_str = serve_arg.split(":", 1)
+        try:
+            port = int(port_str)
+        except ValueError:
+            print_error(f"Invalid port: {port_str}")
+            sys.exit(1)
+    else:
+        host = "127.0.0.1"
+        try:
+            port = int(serve_arg)
+        except ValueError:
+            print_error(f"Invalid port: {serve_arg}")
+            sys.exit(1)
+
+    from langgraph_gen.server import app
+    from uvicorn import run    
+    run(app, host=host, port=port, use_colors=True)
 
 
 def main() -> None:
@@ -99,6 +147,12 @@ Examples:
   
   # Generate with custom templates
   langgraph-gen spec.yml --graph-template py-class-graph.j2 --impl-template py-impl-graph.j2
+
+  # Run the HTTP server
+  langgraph-gen --serve 8000
+  
+  # Run the HTTP server with custom host
+  langgraph-gen --serve 127.0.0.1:8000
 """
 
     # Use RawDescriptionHelpFormatter to preserve newlines in epilog
@@ -107,6 +161,8 @@ Examples:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=examples,
     )
+
+    # Main command arguments
     parser.add_argument("input", type=Path, help="Input YAML specification file", nargs="?")
     parser.add_argument(
         "-l",
@@ -115,7 +171,6 @@ Examples:
         default="python",
         help="Language to generate code for (python, typescript)",
     )
-
     parser.add_argument(
         "--only",
         type=str,
@@ -128,9 +183,7 @@ Examples:
         nargs="*",
         help="Skip the specified template type",
     )
-
-    
-    
+        
     for template_type in TEMPLATE_TYPES:
         parser.add_argument(
             f"-{template_type[0]}O",
@@ -153,6 +206,22 @@ Examples:
         action="store_true",
         help="List available templates",
     )    
+
+    parser.add_argument(
+        "-t",
+        "--template-dirs",
+        nargs="*",
+        type=Path,
+        help="Additional template directories to search for templates",
+    )
+
+    parser.add_argument(
+        "--serve",
+        nargs="?",
+        const="8000",  # Default to port 8000 if --serve is specified without a value
+        metavar="[HOST:]PORT",
+        help="Run the HTTP server (optionally specify host:port or just port)",
+    )
 
     parser.add_argument(
         "-V", "--version", action="version", version=f"%(prog)s {__version__}"
@@ -184,15 +253,26 @@ Examples:
             # Add error message using our helper function
             print_error("Invalid arguments")
         sys.exit(e.code)
-        
+
+    if args.template_dirs:
+        for template_dir in args.template_dirs:
+            print(f"Adding template directory: {template_dir}")
+            add_template_dir(template_dir)
+    print(f"Template directories: {TEMPLATE_DIRS}")
+    print(f"Template types: {TEMPLATE_TYPES}")
+    print(f"Languages: {LANGUAGES}")
+
     # Handle listing templates
     if args.list_templates:
-        print(list_templates())
+        _list_templates(args)
+        sys.exit(0)
+    elif args.serve:
+        _serve(args)
         sys.exit(0)
 
-    # Check if input file is provided when not listing templates
+    # Check if input file is provided when not listing templates or serving
     if not args.input:
-        print_error("Input file is required unless --list-templates is specified")
+        print_error("Input file is required unless --list-templates or --serve is specified")
         sys.exit(1)
         
     # Check if input file exists
@@ -200,40 +280,10 @@ Examples:
         print_error(f"Input file {args.input} does not exist")
         sys.exit(1)
     
-    output_files = {}
-    templates = {}
-    suffix = ".py" if args.language == "python" else ".ts"
-    for template_type in TEMPLATE_TYPES:
-        if args.only and template_type not in args.only:
-            continue
-        if args.skip and template_type in args.skip:
-            continue
-        if outfile := getattr(args, f"{template_type}_outfile"):
-            output_files[template_type] = outfile
-        else:
-            output_files[template_type] = args.input.with_name(f"{template_type}{suffix}")
-        if template := getattr(args, f"{template_type}_template"):
-            templates[template_type] = template
-        else:
-            templates[template_type] = "default"
-
     # Generate the code
     try:
-        output_files = _generate(
-            input_file=args.input,
-            output_files=output_files,
-            templates=templates,
-            language=args.language,
-        )
-        # Check if stdout is a TTY to use colors and emoji
-        if sys.stdout.isatty():
-            print("\033[32m✅ Successfully generated files:\033[0m")
-            for template_type, file in output_files.items():
-                print(f"\033[32m📄 {template_type.capitalize()} file: \033[0m {file}")
-        else:
-            print("Successfully generated files:")
-            for template_type, file in output_files.items():
-                print(f"- {template_type.capitalize()} file: {file}")
+        _generate(args)
+        sys.exit(0)
     except Exception as e:
         # Use our helper function for consistent error formatting
         print_error(str(e))

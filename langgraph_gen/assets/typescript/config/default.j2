@@ -1,0 +1,27 @@
+/* Define the configurable parameters for the agent. */
+
+import { z } from "zod";
+
+export const ConfigurationSchema = z.object({
+  systemPrompt: z.string().default("").describe(
+    "The system prompt to use for the agent's interactions. " +
+    "This prompt sets the context and behavior for the agent."
+  ),
+  model: z.string().default("").describe(
+    "The name of the language model to use for the agent's main interactions. " +
+    "Should be in the form: provider/model-name."
+  ).meta({ kind: "llm" }),
+});
+
+export type Configuration = z.infer<typeof ConfigurationSchema>;
+
+export function fromRunnableConfig(config?: Record<string, any>): Configuration {
+  const configurable = config?.configurable || {};
+  return ConfigurationSchema.parse(
+    Object.fromEntries(
+      Object.entries(configurable).filter(([key]) => 
+        key in ConfigurationSchema.shape
+      )
+    )
+  );
+} 

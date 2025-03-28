@@ -1,0 +1,134 @@
+/* This file was generated using `langgraph-gen` version {{ version }}.
+
+This file provides a placeholder implementation for the corresponding graph.
+
+Replace the placeholder implementation with your own logic.
+*/
+{% macro standard_edge(edge) %}
+    {% if edge == "__end__" %}END{% elif edge == "__start__" %}START{% else %}"{{ edge }}"{% endif %}
+{% endmacro %}
+
+import { StateGraph, START, END } from "@langchain/langgraph";
+import type { Callable } from "@langchain/langgraph";
+
+{% if config_module %}
+import { {{ config_name }} } from "{{ config_module }}";
+{% else %}
+// Update the import path
+// import { {{ config_name }} } from "[path to your config]";
+{% endif %}
+{% if state_module %}
+import { {{ state_name }} } from "{{ state_module }}";
+{% else %}
+// Update the import path
+// import { {{ state_name }} } from "[path to your state]";
+{% endif %}
+{% if input_module %}
+import { {{ input_name }} } from "{{ input_module }}";
+{% else %}
+// Update the import path
+// import { {{ input_name }} } from "[path to your input]";
+{% endif %}
+{% if output_module %}
+import { {{ output_name }} } from "{{ output_module }}";
+{% else %}
+// Update the import path
+// import { {{ output_name }} } from "[path to your output]";
+{% endif %}
+{% if implementation_module %}
+import { {{ implementation_name }} } from "{{ implementation_module }}";
+{% else %}
+// Update the import path
+// import { {{ implementation_name }} } from "[path to your implementation]";
+{% endif %}
+
+export function {{ graph_name }}<TState = any, TConfig = any, TInput = any, TOutput = any>(
+  options: {
+    stateSchema?: TState;
+    configSchema?: TConfig;
+    input?: TInput;
+    output?: TOutput;
+    impl: [string, Callable][];
+  }
+): StateGraph {
+  const { stateSchema, configSchema, input, output, impl } = options;
+  
+  // Declare the state graph
+  const builder = new StateGraph({
+    stateSchema,
+    configSchema,
+    input,
+    output,
+  });
+
+  const nodesByName = new Map(impl);
+  const allNames = new Set(nodesByName.keys());
+
+  const expectedImplementations = new Set([
+    {% for node in nodes %}
+    "{{ node.id }}",
+    {% endfor %}
+    {% for edge in edges if edge.condition %}
+    "{{ edge.condition }}",
+    {% endfor %}
+  ]);
+
+  const missingNodes = [...expectedImplementations].filter(name => !allNames.has(name));
+  if (missingNodes.length > 0) {
+    throw new Error(`Missing implementations for: ${missingNodes.join(", ")}`);
+  }
+
+  const extraNodes = [...allNames].filter(name => !expectedImplementations.has(name));
+  if (extraNodes.length > 0) {
+    throw new Error(`Extra implementations for: ${extraNodes.join(", ")}. Please regenerate the graph.`);
+  }
+
+  // Add nodes
+  {% for node in nodes %}
+  builder.addNode("{{ node.name }}", nodesByName.get("{{ node.id }}")!);
+  {% endfor %}
+
+  // Add edges
+  {% for edge in edges %}
+  {% if edge.condition is defined %}
+  builder.addConditionalEdges(
+    {{ standard_edge(edge.from) }},
+    nodesByName.get("{{ edge.condition }}")!,
+    {% if edge.paths is mapping %}
+    {
+    {% for key, value in edge.paths.items() %}
+      "{{ key }}": {{ standard_edge(value) }},
+    {% endfor %}
+    }
+    {% else %}
+    [
+    {%  for path in edge.paths %}
+      {{ standard_edge(path) }},
+    {% endfor %}
+    ]
+    {% endif %}
+  );
+  {% else %}
+  builder.addEdge({{ standard_edge(edge.from) }}, {{ standard_edge(edge.to) }});
+  {% endif %}
+  {% endfor %}
+  {% if entrypoint %}
+  builder.setEntryPoint("{{ entrypoint }}");
+  {% endif %}
+  return builder;
+}
+
+export const {{ builder_name }} = {{ graph_name }}({
+  stateSchema: {{ state_name }},
+  configSchema: {{ config_name }},
+  input: {{ input_name if input_name else "undefined" }},
+  output: {{ output_name if output_name else "undefined" }},
+  impl: Object.entries({{ implementation_name }}),
+});
+
+export const {{ compiled_name }} = {{ builder_name }}.compile();
+{{ compiled_name }}.name = "{{ graph_name }}";
+
+if (require.main === module) {
+  console.log({{ compiled_name }}.getGraph().drawMermaid());
+} 

@@ -1,0 +1,18 @@
+/* Define the state structures for the agent. */
+
+import { z } from "zod";
+import { addMessages } from "@langchain/langgraph";
+
+const AnyMessageSchema = z.any(); // Replace with actual message schema if needed
+
+export const InputStateSchema = z.object({
+  messages: z.array(AnyMessageSchema).default([]).transform(addMessages),
+});
+
+export type InputState = z.infer<typeof InputStateSchema>;
+
+export const StateSchema = InputStateSchema.extend({
+  isLastStep: z.boolean().default(false),
+});
+
+export type State = z.infer<typeof StateSchema>; 
