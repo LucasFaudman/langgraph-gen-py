@@ -97,11 +97,9 @@ def generate_from_spec(
     else:
         raise ValueError(f"Invalid format: {format_}")
 
-    _validate_spec(spec)
-    # Add machine names to the nodes
-    _update_spec(spec)
+    _validate_spec(spec)    
+    _update_spec(spec) # Add machine names to the nodes
     graph_name = _update_name(spec, language)
-    print(graph_name)
     env = SandboxedEnvironment(
         loader=jinja2.BaseLoader, trim_blocks=True, lstrip_blocks=True
     )

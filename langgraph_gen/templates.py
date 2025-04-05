@@ -95,7 +95,7 @@ def get_template_path(
         return template_path
     
     # Check in all template dirs
-    for template_dir in TEMPLATE_DIRS:
+    for template_dir in TEMPLATE_DIRS[1:] + [ASSETS]:
         if (template_path := template_dir / language / template_type / template).exists():
             return template_path
     

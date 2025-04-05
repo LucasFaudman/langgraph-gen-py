@@ -46,8 +46,6 @@ def {{ edge.condition }}(state: {{ state_name }}) -> str:
 
 
 {% endfor %}
-
-
 {{ implementation_name }} = {
     {% for node in nodes %}
     "{{ node.id }}": {{ node.id }},
