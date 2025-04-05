@@ -76,7 +76,14 @@ def _generate(args: argparse.Namespace) -> dict[TemplateType, Path]:
     )
     generated_files = {}
     for template_type, code in generated.items():
-        output_files[template_type].write_text(code)
+        output_file = output_files[template_type]
+        if args.clobber:
+            output_file.write_text(code)
+        elif output_file.exists() and output_file.read_text() != code:
+            print(f"Skipping {template_type} because it already exists and is different from the generated code")
+            continue
+        else:
+            output_file.write_text(code)
         generated_files[template_type] = output_files[template_type]
 
     # Check if stdout is a TTY to use colors and emoji
@@ -172,6 +179,13 @@ Examples:
         help="Language to generate code for (python, typescript)",
     )
     parser.add_argument(
+        "--clobber",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Clobber existing files if they exist and are different from the generated code",
+    )
+
+    parser.add_argument(
         "--only",
         type=str,
         nargs="*",
@@ -258,9 +272,6 @@ Examples:
         for template_dir in args.template_dirs:
             print(f"Adding template directory: {template_dir}")
             add_template_dir(template_dir)
-    print(f"Template directories: {TEMPLATE_DIRS}")
-    print(f"Template types: {TEMPLATE_TYPES}")
-    print(f"Languages: {LANGUAGES}")
 
     # Handle listing templates
     if args.list_templates:
