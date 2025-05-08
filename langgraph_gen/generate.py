@@ -4,8 +4,9 @@
 import json
 import re
 from pathlib import Path
+from collections import defaultdict
 from typing import Any, Callable, Literal, Set, Optional
-
+from pprint import pprint
 import jinja2
 import yaml
 from jinja2.sandbox import SandboxedEnvironment
@@ -41,27 +42,94 @@ def _validate_spec(spec: Any) -> None:
                     f"Edge target node '{edge['to']}' not defined in nodes"
                 )
 
+def format_strings(_dict: dict) -> dict:
+    for key in _dict.keys():
+        val = _dict[key]
+        if isinstance(val, str):
+            _dict[key] = val.format(**_dict)
+    return _dict
 
-PATTERN = re.compile(r"\W")
+def parse_import_str(import_str: str) -> tuple[str|None, str]:
+    """Parse an import string into a module and object."""
+    if (import_str) and "." in import_str:
+        *module_parts, object_name = import_str.rsplit(".", 1)
+    else:
+        module_parts = None
+        object_name = import_str
+    module = ".".join(module_parts) if module_parts else None
+    return module, object_name
 
+def snake_to_class_name(snake_str: str) -> str:
+    """Convert a snake case string to a class name."""
+    return "".join(word.capitalize() for word in snake_str.split("_"))
 
-def _update_spec(spec: dict) -> None:
-    """Add an id to each node in the spec which will be used as a machine name."""
-    for node in spec["nodes"]:
-        # Set the node id to be a "machine name" if not provided
-        # convert any non alpha-numeric characters to underscores
-        node["id"] = PATTERN.sub("_", node["name"])
-
-def _update_name(spec: dict, language: Language) -> str:
+def update_graph_name(spec: dict) -> str:
     """Update the name of the agent."""
-    if "name" not in spec:
+    name = spec.get("name") or spec.get("graph_name")
+    if not name:
+        language = spec.get("language", "python")
         if language == "python":
-            spec["name"] = "create_agent"
+            name = "create_agent"
         elif language == "typescript":
-            spec["name"] = "createAgent"
+            name = "createAgent"
         else:
             raise ValueError(f"Invalid language: {language}")
-    return spec["name"]
+    spec["name"] = name
+    spec["graph_name"] = name
+    return name
+
+def update_graph_imports(spec: dict, imports: dict) -> dict:
+    graph_import_keys = ["state", "input_state", "output_state", "config", "runtime_config"]
+    for key in graph_import_keys:
+        full_key = f"graph_{key}_type"
+        val = spec.get(full_key) or spec.get(key) or snake_to_class_name(key)
+        module, object_name = parse_import_str(val)
+        if module:
+            imports[module].append(object_name)
+        else:
+            imports[object_name] = None
+        spec[full_key] = object_name
+    return imports
+
+def update_type_imports(spec: dict, imports: dict) -> dict:
+    for import_dict in spec.get("imports", []):
+        module = import_dict["module"]
+        imports[module].extend(import_dict["objects"])
+    spec["imports"] = imports
+    return imports
+
+def update_nodes(spec: dict) -> dict:
+    """Add an id to each node in the spec which will be used as a machine name."""
+    formatted_nodes = []
+    for i, node in enumerate(spec.get("nodes", [])):
+        # Set the node id to be a "machine name" if not provided
+        # convert any non alpha-numeric characters to underscores
+        node_name = node.get("name") or node.get("node_name", f"Node{i}")
+        node["name"] = node["node_name"] = node_name
+        node["id"] = node["node_id"] = re.sub(r"\W", "_", node_name)
+
+        node["node_type"] = node.get("type") or node.get("node_type", "base")
+        node["node_state_type"] = node.get("state_type") or node.get("node_state_type", "NodeState")
+        node["overrides"] = node.get("overrides", [])
+        if "all" in node["overrides"]:
+            node["overrides"] = ["all"]
+        formatted_nodes.append(format_strings(node))
+    spec["nodes"] = formatted_nodes
+    return spec
+
+
+def _update_spec(spec: dict) -> dict:
+    format_strings(spec)
+    imports = defaultdict(list)
+    update_graph_imports(spec, imports)
+    update_type_imports(spec, imports)
+    update_nodes(spec)
+    spec["version"] = __version__
+    print("--------------------------------")
+    pprint(spec)
+    print("--------------------------------")
+    return spec
+
 
 def generate_from_spec(
     spec_str: str,
@@ -99,40 +167,12 @@ def generate_from_spec(
 
     _validate_spec(spec)    
     _update_spec(spec) # Add machine names to the nodes
-    graph_name = _update_name(spec, language)
+    # graph_name = update_graph_name(spec, language)
     env = SandboxedEnvironment(
         loader=jinja2.BaseLoader, trim_blocks=True, lstrip_blocks=True
     )
 
-    _modules = {}
-    _names = {"graph_name": graph_name}
-    for template_type in TEMPLATE_TYPES:
-        if modules and template_type in modules:
-            _modules[f"{template_type}_module"] = modules[template_type]
-        if names and template_type in names:
-            _names[f"{template_type}_name"] = names[template_type]
-
-    if "builder_name" not in _names:
-        _names["builder_name"] = spec.get("builder_name", "builder")
-    if "compiled_name" not in _names:
-        _names["compiled_name"] = spec.get("compiled_name", "graph")
-    for spec_key in ["config", "state", "input", "output", "implementation"]:
-        if (spec_val := spec.get(spec_key)) and "." in spec_val:
-            *module_parts, name = spec_val.rsplit(".", 1)
-        else:
-            module_parts = None
-            name = spec_val
-
-        module_key = f"{spec_key}_module"
-        if module_parts and not _modules.get(module_key):
-            _modules[module_key] = ".".join(module_parts)
-        
-        name_key = f"{spec_key}_name"
-        if name and not _names.get(name_key):
-            _names[name_key] = name
-
     generated = {}
-
     for template_type, template_path in templates.items():
         try:
             if template_type in TEMPLATE_TYPES:
@@ -141,14 +181,7 @@ def generate_from_spec(
             else:
                 raise ValueError(f"Invalid template type: {template_type}")
 
-            code = template.render(
-                nodes=spec["nodes"],
-                edges=spec["edges"],
-                entrypoint=spec.get("entrypoint", None),
-                version=__version__,
-                **_modules,
-                **_names,
-            )
+            code = template.render(**spec)
             generated[template_type] = code
         except jinja2.TemplateError as e:
             raise AssertionError(

@@ -297,6 +297,8 @@ Examples:
         sys.exit(0)
     except Exception as e:
         # Use our helper function for consistent error formatting
+        from traceback import print_exc
+        print_exc()
         print_error(str(e))
         sys.exit(1)
 
